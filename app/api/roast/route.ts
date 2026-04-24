@@ -1,7 +1,5 @@
 export const runtime = "nodejs";
 
-import { PDFParse } from "pdf-parse";
-
 const MAX_TEXT_CHARS = 12_000;
 
 function getToneInstruction(tone: string) {
@@ -45,19 +43,37 @@ export async function POST(request: Request) {
       }
 
       if (isPdfFile) {
+        const pastedFallback = pastedText.trim().length > 0;
         try {
+          const { getDocumentProxy, extractText } = await import("unpdf");
           const arrayBuffer = await uploadedFile.arrayBuffer();
-          const parser = new PDFParse({ data: Buffer.from(arrayBuffer) });
-          const result = await parser.getText();
-          fileText = result.text;
-        } catch {
-          return Response.json(
-            {
-              error:
-                "Could not read that PDF. Try a different file, export PDF again, or paste the resume text instead.",
-            },
-            { status: 400 },
-          );
+          const pdf = await getDocumentProxy(new Uint8Array(arrayBuffer));
+          const { text } = await extractText(pdf, { mergePages: true });
+          fileText = text.trim();
+          if (!fileText && !pastedFallback) {
+            return Response.json(
+              {
+                error:
+                  "This PDF has no selectable text (common for scanned or image-based resumes). Paste your resume in the text box, or export a text-based PDF from Word/Google Docs.",
+              },
+              { status: 400 },
+            );
+          }
+        } catch (err) {
+          if (pastedFallback) {
+            fileText = "";
+          } else {
+            const msg = err instanceof Error ? err.message : "";
+            const isPassword = /password/i.test(msg) || /encrypted/i.test(msg);
+            return Response.json(
+              {
+                error: isPassword
+                  ? "That PDF is password-protected. Remove the password or paste the resume text instead."
+                  : "Could not parse that PDF (file may be corrupt or an unusual export). Try Save as PDF again from Word or Google Docs, use a .txt file, or paste your resume text.",
+              },
+              { status: 400 },
+            );
+          }
         }
       } else {
         fileText = await uploadedFile.text();
