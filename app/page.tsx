@@ -31,7 +31,18 @@ export default function Home() {
         method: "POST",
         body: formData,
       });
-      const body = (await response.json()) as RoastResponse | { error: string };
+      const raw = await response.text();
+      let body: RoastResponse | { error: string };
+      try {
+        body = JSON.parse(raw) as RoastResponse | { error: string };
+      } catch {
+        setError(
+          response.ok
+            ? "The server returned an invalid response. Try again or paste text instead of uploading a file."
+            : `Request failed (${response.status}). If you deployed to Vercel, add GROQ_API_KEY under Project → Settings → Environment Variables.`,
+        );
+        return;
+      }
 
       if (!response.ok || !("roast" in body)) {
         setError("error" in body ? body.error : "Failed to roast resume.");
@@ -40,7 +51,9 @@ export default function Home() {
 
       setRoast(body.roast);
     } catch {
-      setError("Something went wrong while contacting the roast engine.");
+      setError(
+        "Network error: could not reach the app. Check your connection, confirm `next dev` or your deployment is running, then try again.",
+      );
     } finally {
       setIsLoading(false);
     }
