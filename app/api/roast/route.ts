@@ -1,3 +1,5 @@
+import "@/lib/ensure-promise-try";
+
 export const runtime = "nodejs";
 
 const MAX_TEXT_CHARS = 12_000;
@@ -13,7 +15,7 @@ function getToneInstruction(tone: string) {
 }
 
 export async function POST(request: Request) {
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY?.trim();
   if (!apiKey) {
     return Response.json(
       { error: "Missing GROQ_API_KEY environment variable." },
@@ -45,11 +47,9 @@ export async function POST(request: Request) {
       if (isPdfFile) {
         const pastedFallback = pastedText.trim().length > 0;
         try {
-          const { getDocumentProxy, extractText } = await import("unpdf");
+          const { extractPdfText } = await import("@/lib/pdf-extract");
           const arrayBuffer = await uploadedFile.arrayBuffer();
-          const pdf = await getDocumentProxy(new Uint8Array(arrayBuffer));
-          const { text } = await extractText(pdf, { mergePages: true });
-          fileText = text.trim();
+          fileText = (await extractPdfText(arrayBuffer)).trim();
           if (!fileText && !pastedFallback) {
             return Response.json(
               {
@@ -60,6 +60,9 @@ export async function POST(request: Request) {
             );
           }
         } catch (err) {
+          if (process.env.NODE_ENV === "development") {
+            console.error("[api/roast] PDF extraction failed:", err);
+          }
           if (pastedFallback) {
             fileText = "";
           } else {
@@ -69,7 +72,7 @@ export async function POST(request: Request) {
               {
                 error: isPassword
                   ? "That PDF is password-protected. Remove the password or paste the resume text instead."
-                  : "Could not parse that PDF (file may be corrupt or an unusual export). Try Save as PDF again from Word or Google Docs, use a .txt file, or paste your resume text.",
+                  : "Could not parse that PDF. Try Save as PDF again from Word or Google Docs, use a .txt file, or paste your resume text.",
               },
               { status: 400 },
             );
